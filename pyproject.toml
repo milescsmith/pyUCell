@@ -1,0 +1,26 @@
+[project]
+name = "pyucell"
+version = "0.1.0"
+authors = [
+    { name='Ergün Tiryaki', email='etiryaki16@ku.edu.tr' }
+]
+description = "Python implementation of the UCell algorithm."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numba>=0.61.2",
+    "numpy>=2.2.6",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pyUCell"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12.4",
+    "ty>=0.0.1a15",
+]
