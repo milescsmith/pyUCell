@@ -1,6 +1,6 @@
 [project]
 name = "pyucell"
-version = "0.1.0"
+version = "0.2.0"
 authors = [
     { name='Ergün Tiryaki', email='etiryaki16@ku.edu.tr' }
 ]
