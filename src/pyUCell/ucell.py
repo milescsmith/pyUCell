@@ -1,9 +1,11 @@
+from anndata import AnnData
 import numpy as np
+import numpy.typing as npt
 from numba import njit
 
 
 @njit
-def minimal_ranker(arr, ascending=False):
+def minimal_ranker(arr: npt.NDArray, ascending: bool = False) -> int:
     arr = np.ravel(arr)
     sorter = np.argsort(arr, kind="quicksort")
 
@@ -24,7 +26,7 @@ def minimal_ranker(arr, ascending=False):
 
 
 @njit
-def get_ranks_of_zeros(n_genes, n_nonzero):
+def get_ranks_of_zeros(n_genes: int, n_nonzero: int) -> npt.NDArray:
     n_zeros = n_genes - n_nonzero
     base_rank = (sum(range(n_genes + 1)) - sum(range(n_nonzero + 1))) / n_zeros
     new_arr = np.full((n_genes,), fill_value=base_rank)
@@ -32,21 +34,32 @@ def get_ranks_of_zeros(n_genes, n_nonzero):
 
 
 @njit
-def insert_ranks_of_nonzero(base_rank_arr, nonzero_arr, csr_indices):
+def insert_ranks_of_nonzero(
+    base_rank_arr: npt.NDArray, nonzero_arr: npt.NDArray, indices: npt.NDArray
+):
     rnk = minimal_ranker(nonzero_arr)
-    base_rank_arr[csr_indices] = rnk
+    base_rank_arr[indices] = rnk
 
 
-def rank_sparse(sp_arr):
-    new_arr = get_ranks_of_zeros(sp_arr.shape[1], sp_arr.nnz)
-    insert_ranks_of_nonzero(
-        new_arr, sp_arr[:, sp_arr.indices].toarray(), sp_arr.indices
-    )
+@njit(parallel=True)
+def rank_genes(arr: npt.NDArray) -> npt.NDArray:
+    new_arr: npt.NDArray = get_ranks_of_zeros(len(arr), np.sum(arr == 0))
+    indices: npt.NDArray = np.nonzero(arr)
+    insert_ranks_of_nonzero(new_arr, arr[indices], indices)
     return new_arr
 
 
-def _calculate_u_score(vec, max_rank, n_signature, idx):
-    rnk = rank_sparse(vec)
+@np.vectorize(otypes=[int], signature="(m),()->()")
+def get_index(index, label):
+    return np.where(index == label)[0]
+
+
+@np.vectorize(otypes=[np.float64], signature="(m),(),(),(n)->()")
+def vec_calculate_u_score(cell_exprs, max_rank, n_signature, idx):
+    rnk = get_ranks_of_zeros(len(cell_exprs), np.sum(cell_exprs == 0))
+    indices = np.nonzero(cell_exprs)
+    insert_ranks_of_nonzero(rnk, cell_exprs[indices], indices)
+
     rnk[rnk > max_rank] = max_rank + 1
     rnk = rnk[idx]
     u_val = sum([i - (n_signature * (n_signature + 1)) / 2 for i in rnk])
@@ -55,17 +68,19 @@ def _calculate_u_score(vec, max_rank, n_signature, idx):
 
 
 def score_genes_ucell(
-    adata, signature, max_rank=1500, score_name="ucell_score", copy=False
-):
+    adata: AnnData,
+    signature: list[str],
+    max_rank: int = 1500,
+    score_name: str = "ucell_score",
+    copy: bool = False,
+) -> AnnData | None:
     adata = adata.copy() if copy else adata
     n_signature = len(signature)
-    idx = [adata.var.index.to_list().index(s) for s in signature]
+    idx = get_index(adata.var_names, signature)
 
-    res = map(
-        lambda vec: _calculate_u_score(
-            vec, max_rank=max_rank, n_signature=n_signature, idx=idx
-        ),
-        [vec for vec in adata.X],
+    res = vec_calculate_u_score(
+        adata.X, max_rank=max_rank, n_signature=n_signature, idx=idx
     )
-    adata.obs[score_name] = list(res)
+
+    adata.obs[score_name] = res
     return adata if copy else None
